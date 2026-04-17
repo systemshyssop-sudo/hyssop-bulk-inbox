@@ -17,32 +17,27 @@ type Message = {
 export default function Page() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
-
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
-  // Load messages
+  // LOAD
   useEffect(() => {
     const load = async () => {
       const data = await getMessages();
-      setMessages(data);
+      setMessages(data || []);
     };
     load();
   }, []);
 
-  // Realtime sync
+  // REALTIME
   useEffect(() => {
     const channel = supabase
       .channel("messages-realtime")
       .on(
         "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "messages",
-        },
+        { event: "*", schema: "public", table: "messages" },
         async () => {
           const data = await getMessages();
-          setMessages(data);
+          setMessages(data || []);
         }
       )
       .subscribe();
@@ -56,38 +51,29 @@ export default function Page() {
     return groupMessagesByPhone(messages);
   }, [messages]);
 
-  // SORT CHATS BY LATEST MESSAGE (WHATSAPP STYLE)
   const sortedPhones = useMemo(() => {
     return Object.keys(conversations).sort((a, b) => {
-      const aLast =
-        conversations[a]?.[conversations[a].length - 1]?.created_at || 0;
-      const bLast =
-        conversations[b]?.[conversations[b].length - 1]?.created_at || 0;
-
+      const aLast = conversations[a]?.at(-1)?.created_at || 0;
+      const bLast = conversations[b]?.at(-1)?.created_at || 0;
       return new Date(bLast).getTime() - new Date(aLast).getTime();
     });
   }, [conversations]);
 
-  // ACTIVE CHAT
-  const activeMessages: Message[] = useMemo(() => {
+  const activeMessages = useMemo(() => {
     if (!selectedPhone) return [];
-
     return [...(conversations[selectedPhone] || [])].sort(
       (a, b) =>
-        new Date(a.created_at).getTime() -
-        new Date(b.created_at).getTime()
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     );
   }, [selectedPhone, conversations]);
 
-  // UNREAD COUNTER LOGIC (disappears when opened)
   const unreadCounts = useMemo(() => {
     const counts: Record<string, number> = {};
 
     Object.keys(conversations).forEach((phone) => {
       if (phone === selectedPhone) return;
-
       counts[phone] = conversations[phone].filter(
-        (m: Message) => m.direction === "incoming"
+        (m) => m.direction === "incoming"
       ).length;
     });
 
@@ -99,43 +85,35 @@ export default function Page() {
   }, [selectedPhone, activeMessages.length]);
 
   return (
-    <div
-      style={{
-        display: "flex",
-        height: "100vh",
-        fontFamily: "Arial",
-        background: "#0b1220",
-        color: "white",
-      }}
-    >
-      {/* SIDEBAR */}
-      <div
-        style={{
-          width: "30%",
-          borderRight: "1px solid #334155",
-          background: "#0b1220",
-          overflowY: "auto",
-        }}
-      >
-        <div
-  style={{
-    padding: 16,
-    borderBottom: "1px solid #334155",
-  }}
->
-  <div style={{ fontSize: 16, fontWeight: 700 }}>
-    Hyssop Bulk Inbox
-  </div>
+    <div className="container" style={{
+      display: "flex",
+      height: "100vh",
+      fontFamily: "Arial",
+      background: "#0f172a",
+      color: "white",
+    }}>
 
-  <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
-    WhatsApp messaging console
-  </div>
-</div>
+      {/* SIDEBAR */}
+      <div className="sidebar" style={{
+        width: "30%",
+        minWidth: 280,
+        maxWidth: 360,
+        borderRight: "1px solid #334155",
+        background: "#111827",
+        overflowY: "auto",
+      }}>
+
+        <div style={{ padding: 16, borderBottom: "1px solid #334155" }}>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>
+            Hyssop Bulk Inbox
+          </div>
+          <div style={{ fontSize: 12, color: "#94a3b8" }}>
+            WhatsApp console
+          </div>
+        </div>
 
         {sortedPhones.map((phone) => {
-          const lastMsg =
-            conversations[phone]?.[conversations[phone].length - 1];
-
+          const lastMsg = conversations[phone]?.at(-1);
           const unread = unreadCounts[phone] || 0;
 
           return (
@@ -148,29 +126,17 @@ export default function Page() {
                 borderBottom: "1px solid #1f2937",
                 background:
                   selectedPhone === phone ? "#1e293b" : "transparent",
-                position: "relative",
               }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                }}
-              >
-                <div style={{ fontWeight: 600, color: "#f9fafb" }}>
-                  {phone}
-                </div>
-
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <div style={{ fontWeight: 600 }}>{phone}</div>
                 {unread > 0 && (
-                  <div
-                    style={{
-                      background: "#ef4444",
-                      color: "white",
-                      borderRadius: 999,
-                      padding: "2px 8px",
-                      fontSize: 12,
-                    }}
-                  >
+                  <div style={{
+                    background: "#ef4444",
+                    borderRadius: 999,
+                    padding: "2px 8px",
+                    fontSize: 12,
+                  }}>
                     {unread}
                   </div>
                 )}
@@ -184,41 +150,36 @@ export default function Page() {
         })}
       </div>
 
-      {/* CHAT AREA */}
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          background: "#0b1220",
-        }}
-      >
+      {/* CHAT */}
+      <div className="chat-area" style={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        background: "#0b1220",
+        minWidth: 0,
+      }}>
+
         {/* HEADER */}
-        <div
-          style={{
-            padding: 16,
-            borderBottom: "1px solid #334155",
-            background: "#0b1220",
-            fontWeight: "bold",
-          }}
-        >
-          {selectedPhone ? `Chat: ${selectedPhone}` : "Hyssop Bulk Inbox"}
+        <div style={{
+          padding: 16,
+          borderBottom: "1px solid #334155",
+          fontWeight: "bold",
+        }}>
+          {selectedPhone || "Hyssop Bulk Inbox"}
         </div>
 
         {/* MESSAGES */}
-        <div
-          style={{
-            flex: 1,
-            padding: 16,
-            overflowY: "auto",
-            display: "flex",
-            flexDirection: "column",
-            gap: 10,
-          }}
-        >
+        <div style={{
+          flex: 1,
+          padding: 16,
+          overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+        }}>
           {!selectedPhone && (
             <div style={{ color: "#64748b" }}>
-              Choose a conversation to start
+              Select a chat
             </div>
           )}
 
@@ -226,25 +187,17 @@ export default function Page() {
             const isIncoming = msg.direction === "incoming";
 
             return (
-              <div
-                key={msg.id}
-                style={{
-                  display: "flex",
-                  justifyContent: isIncoming
-                    ? "flex-start"
-                    : "flex-end",
-                }}
-              >
-                <div
-                  style={{
-                    background: isIncoming ? "#1f2937" : "#2563eb",
-                    color: "white",
-                    padding: "10px 12px",
-                    borderRadius: 12,
-                    maxWidth: "60%",
-                    wordBreak: "break-word",
-                  }}
-                >
+              <div key={msg.id} style={{
+                display: "flex",
+                justifyContent: isIncoming ? "flex-start" : "flex-end",
+              }}>
+                <div style={{
+                  background: isIncoming ? "#1f2937" : "#2563eb",
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  maxWidth: "60%",
+                  wordBreak: "break-word",
+                }}>
                   {msg.message_text}
                 </div>
               </div>
@@ -255,14 +208,11 @@ export default function Page() {
         </div>
 
         {/* INPUT */}
-        <div
-          style={{
-            display: "flex",
-            padding: 12,
-            borderTop: "1px solid #334155",
-            background: "#0b1220",
-          }}
-        >
+        <div style={{
+          display: "flex",
+          padding: 12,
+          borderTop: "1px solid #334155",
+        }}>
           <input
             id="msgInput"
             placeholder="Type a message..."
@@ -270,9 +220,9 @@ export default function Page() {
               flex: 1,
               padding: 10,
               borderRadius: 8,
-              border: "1px solid #334155",
               background: "#0f172a",
               color: "white",
+              border: "1px solid #334155",
             }}
           />
 
@@ -281,15 +231,12 @@ export default function Page() {
               marginLeft: 10,
               padding: "10px 16px",
               background: "#2563eb",
-              color: "white",
               borderRadius: 8,
               border: "none",
+              color: "white",
             }}
             onClick={async () => {
-              const input = document.getElementById(
-                "msgInput"
-              ) as HTMLInputElement;
-
+              const input = document.getElementById("msgInput") as HTMLInputElement;
               const text = input.value;
 
               if (!text || !selectedPhone) return;
@@ -298,9 +245,7 @@ export default function Page() {
                 "https://gupshupapi.app.n8n.cloud/webhook/send-message",
                 {
                   method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                  },
+                  headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
                     phone: selectedPhone,
                     message: text,
@@ -315,6 +260,27 @@ export default function Page() {
           </button>
         </div>
       </div>
+
+      {/* MOBILE FIX */}
+      <style>{`
+        @media (max-width: 768px) {
+          .container {
+            flex-direction: column !important;
+          }
+
+          .sidebar {
+            width: 100% !important;
+            max-width: 100% !important;
+            border-right: none !important;
+            border-bottom: 1px solid #334155;
+            height: 40vh;
+          }
+
+          .chat-area {
+            height: 60vh;
+          }
+        }
+      `}</style>
     </div>
   );
 }
