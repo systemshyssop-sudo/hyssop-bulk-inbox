@@ -1,5 +1,15 @@
-export function groupMessagesByPhone(messages: any[]) {
-  const grouped: Record<string, any[]> = {};
+type Message = {
+  id: string;
+  phone_number: string;
+  message_text: string;
+  direction: "incoming" | "outgoing";
+  status: string;
+  created_at: string;
+  is_read?: boolean;
+};
+
+export function groupMessagesByPhone(messages: Message[]) {
+  const grouped: Record<string, Message[]> = {};
 
   for (const msg of messages) {
     const phone = msg.phone_number?.trim();
@@ -12,7 +22,6 @@ export function groupMessagesByPhone(messages: any[]) {
     grouped[phone].push(msg);
   }
 
-  // ✅ IMPORTANT: sort each conversation by time
   for (const phone in grouped) {
     grouped[phone].sort(
       (a, b) =>
