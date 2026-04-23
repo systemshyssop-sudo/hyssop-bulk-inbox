@@ -290,7 +290,7 @@ export default function Page() {
 
     try {
       const res = await fetch(
-        "https://gupshupapi.app.n8n.cloud/webhook/send-message",
+        "https://hyssop.app.n8n.cloud/webhook/send-message",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
