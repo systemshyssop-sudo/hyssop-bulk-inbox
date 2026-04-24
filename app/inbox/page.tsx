@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getMessages, getContacts } from "@/lib/messages/queries";
@@ -396,6 +397,12 @@ export default function Page() {
         >
           Sign out
         </button>
+<Link
+  href="/inbox/bulk-send"
+  className="mt-3 block rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-center text-sm font-medium text-emerald-300"
+>
+  Bulk Send
+</Link>
 
         <div className="mt-4">
           <input
