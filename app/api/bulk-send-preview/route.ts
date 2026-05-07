@@ -5,7 +5,7 @@ export async function POST(req: Request) {
     const body = await req.json();
 
     const response = await fetch(
-      "https://hyssop.app.n8n.cloud/webhook/bulk-send-preview",
+      "https://promptlyai.app.n8n.cloud/webhook/bulk-send-preview",
       {
         method: "POST",
         headers: {

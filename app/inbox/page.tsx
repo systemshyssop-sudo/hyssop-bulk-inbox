@@ -28,6 +28,7 @@ function formatTime(dateString?: string) {
   if (!dateString) return "";
   const date = new Date(dateString);
   if (Number.isNaN(date.getTime())) return "";
+
   return date.toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
@@ -83,6 +84,7 @@ export default function Page() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [attachment, setAttachment] = useState<File | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterType>("all");
   const [isSending, setIsSending] = useState(false);
@@ -96,6 +98,7 @@ export default function Page() {
 
   const router = useRouter();
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   async function refreshMessages() {
     const [messagesData, contactsData] = await Promise.all([
@@ -105,6 +108,38 @@ export default function Page() {
 
     setMessages(messagesData || []);
     setContacts(contactsData || []);
+  }
+
+  async function uploadAttachment(file: File, phone: string) {
+    const fileExt = file.name.split(".").pop() || "file";
+    const safeName = file.name
+      .replace(/\.[^/.]+$/, "")
+      .replace(/[^a-zA-Z0-9-_]/g, "-")
+      .slice(0, 60);
+
+    const fileName = `${Date.now()}-${Math.random()
+      .toString(36)
+      .substring(2)}-${safeName}.${fileExt}`;
+
+    const filePath = `${phone}/${fileName}`;
+
+    const { error } = await supabase.storage
+      .from("attachments")
+      .upload(filePath, file, {
+        cacheControl: "3600",
+        upsert: false,
+      });
+
+    if (error) {
+      console.error("Attachment upload error:", error);
+      throw new Error("Upload failed");
+    }
+
+    const { data } = supabase.storage
+      .from("attachments")
+      .getPublicUrl(filePath);
+
+    return data.publicUrl;
   }
 
   async function handleSignOut() {
@@ -235,8 +270,17 @@ export default function Page() {
     : "Select a conversation";
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [selectedPhone, activeMessages.length]);
+    if (!selectedPhone) return;
+
+    const timeout = window.setTimeout(() => {
+      bottomRef.current?.scrollIntoView({
+        behavior: "auto",
+        block: "end",
+      });
+    }, 50);
+
+    return () => window.clearTimeout(timeout);
+  }, [selectedPhone, activeMessages.length, mobileChatOpen]);
 
   useEffect(() => {
     if (!selectedPhone) return;
@@ -267,12 +311,73 @@ export default function Page() {
       });
   }, [selectedPhone, conversations]);
 
-  async function handleSend() {
-    if (!selectedPhone || !draft.trim() || isSending || activeConversationExpired) {
+  function handleAttachmentChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] || null;
+
+    if (!file) return;
+
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "application/pdf",
+    ];
+
+    if (!allowedTypes.includes(file.type)) {
+      setSendError("Only JPG, PNG, WEBP, and PDF files are supported for now.");
+      event.target.value = "";
       return;
     }
 
-    const messageText = draft.trim();
+    const maxSizeMb = 10;
+    const maxSizeBytes = maxSizeMb * 1024 * 1024;
+
+    if (file.size > maxSizeBytes) {
+      setSendError("Attachment must be 10MB or smaller.");
+      event.target.value = "";
+      return;
+    }
+
+    setAttachment(file);
+    setSendError("");
+  }
+
+  async function handleSend() {
+    if (
+      !selectedPhone ||
+      (!draft.trim() && !attachment) ||
+      isSending ||
+      activeConversationExpired
+    ) {
+      return;
+    }
+
+    const originalDraft = draft;
+    const originalAttachment = attachment;
+
+    let messageText = draft.trim();
+    let mediaUrl: string | null = null;
+    let mediaType: "image" | "file" | null = null;
+
+    if (attachment) {
+      try {
+        mediaUrl = await uploadAttachment(attachment, selectedPhone);
+
+        if (attachment.type.startsWith("image")) {
+          mediaType = "image";
+        } else if (attachment.type === "application/pdf") {
+          mediaType = "file";
+        }
+
+        if (!messageText) {
+          messageText = `[Attachment] ${attachment.name}`;
+        }
+      } catch (error) {
+        console.error(error);
+        setSendError("Failed to upload attachment.");
+        return;
+      }
+    }
 
     const tempMessage: Message = {
       id: `temp-${Date.now()}`,
@@ -286,18 +391,23 @@ export default function Page() {
 
     setMessages((prev) => [...prev, tempMessage]);
     setDraft("");
+    setAttachment(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
     setIsSending(true);
     setSendError("");
 
     try {
       const res = await fetch(
-        "https://hyssop.app.n8n.cloud/webhook/send-message",
+        "https://promptlyai.app.n8n.cloud/webhook/send-message",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             phone: selectedPhone,
+            phone_number: selectedPhone,
             message: messageText,
+            mediaUrl,
+            mediaType,
           }),
         }
       );
@@ -311,7 +421,8 @@ export default function Page() {
     } catch (error) {
       console.error(error);
       setMessages((prev) => prev.filter((m) => m.id !== tempMessage.id));
-      setDraft(messageText);
+      setDraft(originalDraft);
+      setAttachment(originalAttachment);
       setSendError("Message failed to send.");
     } finally {
       setIsSending(false);
@@ -397,12 +508,13 @@ export default function Page() {
         >
           Sign out
         </button>
-<Link
-  href="/inbox/bulk-send"
-  className="mt-3 block rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-center text-sm font-medium text-emerald-300"
->
-  Bulk Send
-</Link>
+
+        <Link
+          href="/inbox/bulk-send"
+          className="mt-3 block rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-center text-sm font-medium text-emerald-300"
+        >
+          Bulk Send
+        </Link>
 
         <div className="mt-4">
           <input
@@ -451,7 +563,9 @@ export default function Page() {
         {loading ? (
           <div className="p-4 text-sm text-slate-400">Loading chats...</div>
         ) : filteredConversations.length === 0 ? (
-          <div className="p-4 text-sm text-slate-400">No conversations found.</div>
+          <div className="p-4 text-sm text-slate-400">
+            No conversations found.
+          </div>
         ) : (
           filteredConversations.map(
             ({ phone, displayName, lastMsg, unreadCount, expired }) => {
@@ -553,7 +667,7 @@ export default function Page() {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-[linear-gradient(180deg,rgba(2,6,23,1)_0%,rgba(15,23,42,1)_100%)] px-4 py-4 md:px-6 md:py-6">
+      <div className="flex-1 overflow-y-auto scroll-smooth bg-[linear-gradient(180deg,rgba(2,6,23,1)_0%,rgba(15,23,42,1)_100%)] px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-6">
         {!selectedPhone ? (
           <div className="flex h-full items-center justify-center text-slate-500">
             Select a chat to view messages.
@@ -632,7 +746,7 @@ export default function Page() {
         )}
       </div>
 
-      <div className="border-t border-slate-800 bg-slate-950 p-4">
+      <div className="sticky bottom-0 z-20 border-t border-slate-800 bg-slate-950/95 p-3 backdrop-blur md:p-4">
         {sendError && (
           <div className="mb-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
             {sendError}
@@ -641,12 +755,46 @@ export default function Page() {
 
         {selectedPhone && activeConversationExpired && (
           <div className="mb-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
-            This chat is expired. You can only reply after the customer sends a new
-            message.
+            This chat is expired. You can only reply after the customer sends a
+            new message.
+          </div>
+        )}
+
+        {attachment && (
+          <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+            <div className="min-w-0 truncate">Attached: {attachment.name}</div>
+            <button
+              type="button"
+              onClick={() => {
+                setAttachment(null);
+                if (fileInputRef.current) fileInputRef.current.value = "";
+              }}
+              className="shrink-0 rounded-lg bg-emerald-500/20 px-2 py-1 text-xs text-emerald-100"
+            >
+              Remove
+            </button>
           </div>
         )}
 
         <div className="flex items-end gap-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,application/pdf"
+            className="hidden"
+            onChange={handleAttachmentChange}
+          />
+
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!selectedPhone || isSending || activeConversationExpired}
+            className="rounded-2xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm font-semibold text-slate-200 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+            title="Attach file"
+          >
+            📎
+          </button>
+
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -659,7 +807,7 @@ export default function Page() {
             }
             disabled={!selectedPhone || isSending || activeConversationExpired}
             rows={1}
-            className="max-h-40 min-h-[48px] flex-1 resize-y rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
+            className="max-h-32 min-h-[48px] flex-1 resize-y rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-base text-white shadow-inner outline-none placeholder:text-slate-400 focus:border-emerald-500 disabled:cursor-not-allowed disabled:opacity-60 md:max-h-40 md:text-sm"
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -672,7 +820,7 @@ export default function Page() {
             onClick={handleSend}
             disabled={
               !selectedPhone ||
-              !draft.trim() ||
+              (!draft.trim() && !attachment) ||
               isSending ||
               activeConversationExpired
             }
