@@ -1,8 +1,25 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  ArrowLeft,
+  CheckCheck,
+  FileText,
+  Inbox as InboxIcon,
+  Megaphone,
+  MoreVertical,
+  Paperclip,
+  Search,
+  Send,
+  Settings,
+  Smile,
+  Trash2,
+  UserRound,
+  Users,
+  X,
+} from "lucide-react";
 
 import { groupMessagesByPhone } from "@/lib/messages/groupMessages";
 import { getContacts, getMessages } from "@/lib/messages/queries";
@@ -109,7 +126,10 @@ function isConversationExpired(messages: Message[]) {
 
   if (!latestInbound) return true;
 
-  const lastInboundTime = new Date(latestInbound.created_at).getTime();
+  const lastInboundTime = new Date(
+    latestInbound.created_at
+  ).getTime();
+
   const hours24 = 24 * 60 * 60 * 1000;
 
   return Date.now() - lastInboundTime > hours24;
@@ -125,28 +145,58 @@ function getMessagePreview(message?: Message) {
   if (text) return text;
 
   if (message.media_type === "image") {
-    return "📷 Photo";
+    return "Photo";
   }
 
   if (message.media_type === "video") {
-    return "🎥 Video";
+    return "Video";
   }
 
   if (message.media_type === "audio") {
-    return "🎵 Audio";
+    return "Audio";
   }
 
   if (message.media_url) {
-    return `📎 ${message.media_name || "Attachment"}`;
+    return message.media_name || "Attachment";
   }
 
   return "No message content";
 }
 
+const navigation = [
+  {
+    href: "/inbox",
+    label: "Inbox",
+    icon: InboxIcon,
+  },
+  {
+    href: "/inbox/contacts",
+    label: "Contacts",
+    icon: Users,
+  },
+  {
+    href: "/inbox/campaigns",
+    label: "Campaigns",
+    icon: Megaphone,
+  },
+  {
+    href: "/inbox/templates",
+    label: "Templates",
+    icon: FileText,
+  },
+  {
+    href: "/inbox/settings",
+    label: "Settings",
+    icon: Settings,
+  },
+];
+
 export default function Page() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
-  const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
+  const [selectedPhone, setSelectedPhone] = useState<string | null>(
+    null
+  );
   const [draft, setDraft] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
   const [search, setSearch] = useState("");
@@ -155,11 +205,12 @@ export default function Page() {
   const [sendError, setSendError] = useState("");
   const [loading, setLoading] = useState(true);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
+  const [showConversationMenu, setShowConversationMenu] =
+    useState(false);
   const [deletingConversation, setDeletingConversation] =
     useState(false);
-  const [deletingMessageId, setDeletingMessageId] = useState<
-    string | null
-  >(null);
+  const [deletingMessageId, setDeletingMessageId] =
+    useState<string | null>(null);
 
   const router = useRouter();
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -190,30 +241,30 @@ export default function Page() {
     const safePhone = phone.replace(/[^0-9]/g, "");
     const filePath = `${safePhone}/${fileName}`;
 
-    const { error } = await supabase.storage
-      .from("attachments")
+    const { error: uploadError } = await supabase.storage
+      .from("whatsapp-media")
       .upload(filePath, file, {
         cacheControl: "3600",
         upsert: false,
         contentType: file.type,
       });
 
-    if (error) {
-      console.error("Attachment upload error:", error);
+    if (uploadError) {
+      console.error("Attachment upload error:", uploadError);
       throw new Error("Attachment upload failed.");
     }
 
-    const { data } = supabase.storage
-      .from("attachments")
-      .getPublicUrl(filePath);
+    const { data, error: signedUrlError } = await supabase.storage
+      .from("whatsapp-media")
+      .createSignedUrl(filePath, 60 * 60 * 24);
 
-    if (!data.publicUrl) {
-      throw new Error("Attachment URL was not generated.");
+    if (signedUrlError || !data?.signedUrl) {
+      console.error("Signed URL error:", signedUrlError);
+      throw new Error("Could not generate an attachment URL.");
     }
 
-    return data.publicUrl;
+    return data.signedUrl;
   }
-
   async function handleSignOut() {
     await supabase.auth.signOut();
     router.push("/login");
@@ -320,14 +371,14 @@ export default function Page() {
           unreadCount,
           expired,
         }) => {
-          const lastMessagePreview =
+          const preview =
             getMessagePreview(lastMessage).toLowerCase();
 
           const matchesSearch =
             !term ||
             phone.toLowerCase().includes(term) ||
             displayName.toLowerCase().includes(term) ||
-            lastMessagePreview.includes(term);
+            preview.includes(term);
 
           if (!matchesSearch) return false;
 
@@ -569,38 +620,34 @@ export default function Page() {
     }
 
     try {
-      const response = await fetch(
-        "https://promptlyai.app.n8n.cloud/webhook/send-message",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            phone: selectedPhone,
-            phone_number: selectedPhone,
-            message: messageText,
-            mediaUrl,
-            mediaType,
-            mediaName: originalAttachment?.name || null,
-            mediaMimeType: originalAttachment?.type || null,
-            mediaSizeBytes: originalAttachment?.size || null,
-            caption: messageText || null,
-          }),
-        }
-      );
+      const response = await fetch("/api/messages/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          phone: selectedPhone,
+          message: messageText,
+          mediaUrl,
+          mediaType,
+          mediaName: originalAttachment?.name || null,
+          mediaMimeType: originalAttachment?.type || null,
+          mediaSizeBytes: originalAttachment?.size || null,
+          caption: messageText || null,
+        }),
+      });
+
+      const result = await response.json().catch(() => null);
 
       if (!response.ok) {
-        const responseText = await response.text();
-
         throw new Error(
-          responseText || "Message failed to send."
+          result?.message || "Message failed to send."
         );
       }
 
       await refreshMessages();
     } catch (error) {
-      console.error(error);
+      console.error("Send message error:", error);
 
       setMessages((previousMessages) =>
         previousMessages.filter(
@@ -610,16 +657,18 @@ export default function Page() {
 
       setDraft(originalDraft);
       setAttachment(originalAttachment);
-      setSendError("Message failed to send.");
+      setSendError(
+        error instanceof Error
+          ? error.message
+          : "Message failed to send."
+      );
     } finally {
       setIsSending(false);
     }
   }
 
   async function handleDeleteMessage(messageId: string) {
-    const confirmed = window.confirm(
-      "Delete this message?"
-    );
+    const confirmed = window.confirm("Delete this message?");
 
     if (!confirmed) return;
 
@@ -667,8 +716,7 @@ export default function Page() {
 
       setMessages((previousMessages) =>
         previousMessages.filter(
-          (message) =>
-            message.phone_number !== selectedPhone
+          (message) => message.phone_number !== selectedPhone
         )
       );
 
@@ -716,13 +764,13 @@ export default function Page() {
           href={message.media_url}
           target="_blank"
           rel="noreferrer"
-          className="mb-2 block overflow-hidden rounded-xl"
+          className="mb-2 block max-w-[280px] overflow-hidden rounded-xl"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={message.media_url}
             alt={message.media_name || "WhatsApp attachment"}
-            className="max-h-[420px] w-full rounded-xl object-cover"
+            className="max-h-[220px] max-w-full w-auto rounded-xl object-contain"
           />
         </a>
       );
@@ -734,7 +782,7 @@ export default function Page() {
           src={message.media_url}
           controls
           preload="metadata"
-          className="mb-2 max-h-[420px] w-full rounded-xl bg-black"
+          className="mb-2 max-h-[220px] w-full max-w-[280px] rounded-xl bg-slate-900"
         >
           Your browser does not support video playback.
         </video>
@@ -759,21 +807,21 @@ export default function Page() {
         href={message.media_url}
         target="_blank"
         rel="noreferrer"
-        className="mb-2 flex items-center gap-3 rounded-xl border border-black/10 bg-black/10 px-3 py-3 transition hover:bg-black/15"
+        className="mb-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 transition hover:bg-slate-100"
       >
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-black/10 text-xl">
-          📄
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-slate-500 shadow-sm">
+          <FileText className="h-5 w-5" />
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold">
+          <div className="truncate text-sm font-semibold text-slate-800">
             {message.media_name || "Open attachment"}
           </div>
 
-          <div className="mt-0.5 text-xs opacity-70">
+          <div className="mt-0.5 text-xs text-slate-500">
             {message.media_mime_type || "Document"}
             {message.media_size_bytes
-              ? ` • ${formatFileSize(
+              ? ` â€¢ ${formatFileSize(
                   message.media_size_bytes
                 )}`
               : ""}
@@ -783,465 +831,642 @@ export default function Page() {
     );
   }
 
-  const sidebar = (
-    <aside className="flex h-full w-full flex-col bg-slate-950">
-      <div className="border-b border-slate-800 px-4 py-4">
-        <div className="text-xl font-semibold tracking-tight text-white">
-          Hyssop Bulk Inbox
+  const unreadTotal = conversationMeta.reduce(
+    (total, conversation) =>
+      total + conversation.unreadCount,
+    0
+  );
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-slate-50 text-slate-900">
+      {/* Desktop navigation */}
+      <aside className="hidden w-[230px] shrink-0 flex-col border-r border-slate-200 bg-white md:flex">
+        <div className="border-b border-slate-200 px-5 py-5">
+          <div className="text-xl font-bold tracking-tight text-slate-900">
+            Hyssop
+          </div>
+
+          <div className="mt-0.5 text-xs text-slate-500">
+            WhatsApp Inbox
+          </div>
         </div>
 
-        <div className="mt-1 text-sm text-slate-400">
-          WhatsApp conversations
-        </div>
+        <nav className="flex-1 px-3 py-4">
+          <div className="space-y-1">
+            {navigation.map((item) => {
+              const Icon = item.icon;
+              const active = item.href === "/inbox";
 
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <Link
-            href="/inbox/bulk-send"
-            className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-center text-sm font-medium text-emerald-300"
-          >
-            Bulk Send
-          </Link>
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
+                    active
+                      ? "bg-emerald-50 font-semibold text-emerald-700"
+                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
 
+                  <span>{item.label}</span>
+
+                  {item.label === "Inbox" &&
+                    unreadTotal > 0 && (
+                      <span className="ml-auto rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold text-white">
+                        {unreadTotal}
+                      </span>
+                    )}
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
+
+        <div className="border-t border-slate-200 p-3">
           <button
             type="button"
             onClick={handleSignOut}
-            className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200"
+            className="w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-900"
           >
             Sign out
           </button>
         </div>
+      </aside>
 
-        <div className="mt-4">
-          <input
-            value={search}
-            onChange={(event) =>
-              setSearch(event.target.value)
-            }
-            placeholder="Search chats..."
-            className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-slate-500"
-          />
-        </div>
+      {/* Main application */}
+      <main className="flex min-w-0 flex-1">
+        {/* Conversation list */}
+        <section
+          className={`flex w-full shrink-0 flex-col border-r border-slate-200 bg-white md:w-[360px] ${
+            mobileChatOpen ? "hidden md:flex" : "flex"
+          }`}
+        >
+          <div className="border-b border-slate-200 px-4 py-4 md:px-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-lg font-semibold text-slate-900">
+                  Inbox
+                </h1>
 
-        <div className="mt-3 flex gap-2">
-          {(
-            [
-              ["all", "All"],
-              ["unread", "Unread"],
-              ["expired", "Expired"],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setFilter(value)}
-              className={`rounded-full px-3 py-1.5 text-sm ${
-                filter === value
-                  ? "bg-emerald-500 text-slate-950"
-                  : "bg-slate-800 text-slate-300"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {conversationMeta.length} conversation
+                  {conversationMeta.length === 1
+                    ? ""
+                    : "s"}
+                </p>
+              </div>
 
-      <div className="flex-1 overflow-y-auto">
-        {loading ? (
-          <div className="p-4 text-sm text-slate-400">
-            Loading chats...
-          </div>
-        ) : filteredConversations.length === 0 ? (
-          <div className="p-4 text-sm text-slate-400">
-            No conversations found.
-          </div>
-        ) : (
-          filteredConversations.map(
-            ({
-              phone,
-              displayName,
-              lastMessage,
-              unreadCount,
-              expired,
-            }) => {
-              const active = selectedPhone === phone;
-              const hasSavedName = displayName !== phone;
+              <button
+                type="button"
+                onClick={() => void refreshMessages()}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Refresh
+              </button>
+            </div>
 
-              return (
+            <div className="relative mt-4">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
+              <input
+                value={search}
+                onChange={(event) =>
+                  setSearch(event.target.value)
+                }
+                placeholder="Search conversations..."
+                className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white"
+              />
+            </div>
+
+            <div className="mt-3 flex gap-2">
+              {(
+                [
+                  ["all", "All"],
+                  ["unread", "Unread"],
+                  ["expired", "Expired"],
+                ] as const
+              ).map(([value, label]) => (
                 <button
-                  key={phone}
+                  key={value}
                   type="button"
-                  onClick={() => openChat(phone)}
-                  className={`flex w-full items-start gap-3 border-b border-slate-800 px-4 py-4 text-left transition ${
-                    active
-                      ? "bg-slate-900"
-                      : "hover:bg-slate-900/70"
+                  onClick={() => setFilter(value)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-medium ${
+                    filter === value
+                      ? "bg-slate-900 text-white"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                   }`}
                 >
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-sm font-semibold text-emerald-300">
-                    WA
-                  </div>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
 
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="truncate font-medium text-white">
-                          {displayName}
+          <div className="flex-1 overflow-y-auto pb-20 md:pb-0">
+            {loading ? (
+              <div className="p-5 text-sm text-slate-500">
+                Loading conversations...
+              </div>
+            ) : filteredConversations.length === 0 ? (
+              <div className="p-8 text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-slate-100">
+                  <Search className="h-5 w-5 text-slate-400" />
+                </div>
+
+                <p className="mt-3 text-sm font-medium text-slate-700">
+                  No conversations found
+                </p>
+
+                <p className="mt-1 text-xs text-slate-400">
+                  Incoming WhatsApp messages will appear here.
+                </p>
+              </div>
+            ) : (
+              filteredConversations.map(
+                ({
+                  phone,
+                  displayName,
+                  lastMessage,
+                  unreadCount,
+                  expired,
+                }) => {
+                  const active = selectedPhone === phone;
+                  const hasSavedName =
+                    displayName !== phone;
+
+                  return (
+                    <button
+                      key={phone}
+                      type="button"
+                      onClick={() => openChat(phone)}
+                      className={`flex w-full items-start gap-3 border-b border-slate-100 px-4 py-4 text-left transition ${
+                        active
+                          ? "bg-emerald-50/70"
+                          : "hover:bg-slate-50"
+                      }`}
+                    >
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold text-emerald-700">
+                        {displayName
+                          .slice(0, 2)
+                          .toUpperCase()}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0 truncate text-sm font-semibold text-slate-800">
+                            {displayName}
+                          </div>
+
+                          <div className="shrink-0 text-[11px] text-slate-400">
+                            {formatTime(
+                              lastMessage?.created_at
+                            )}
+                          </div>
                         </div>
 
                         {hasSavedName && (
-                          <div className="truncate text-xs text-slate-500">
+                          <div className="mt-0.5 truncate text-[11px] text-slate-400">
                             {phone}
                           </div>
                         )}
-                      </div>
 
-                      <div className="shrink-0 text-xs text-slate-500">
-                        {formatTime(
-                          lastMessage?.created_at
-                        )}
+                        <div className="mt-1 flex items-center justify-between gap-2">
+                          <div className="truncate text-xs text-slate-500">
+                            {getMessagePreview(lastMessage)}
+                          </div>
+
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            {expired && (
+                              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                                Expired
+                              </span>
+                            )}
+
+                            {unreadCount > 0 &&
+                              selectedPhone !== phone && (
+                                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-600 px-1.5 text-[10px] font-bold text-white">
+                                  {unreadCount}
+                                </span>
+                              )}
+                          </div>
+                        </div>
                       </div>
+                    </button>
+                  );
+                }
+              )
+            )}
+          </div>
+
+          {/* Mobile bottom navigation */}
+          <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 bg-white/95 px-1 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_20px_rgba(15,23,42,0.06)] backdrop-blur md:hidden">
+            <div className="mx-auto flex h-[68px] max-w-md items-center justify-around">
+              {navigation.map((item) => {
+                const Icon = item.icon;
+                const active = item.href === "/inbox";
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`relative flex min-w-[58px] flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-[10px] font-medium ${
+                      active
+                        ? "text-emerald-700"
+                        : "text-slate-400"
+                    }`}
+                  >
+                    <Icon className="h-[19px] w-[19px]" />
+
+                    <span>{item.label}</span>
+
+                    {item.label === "Inbox" &&
+                      unreadTotal > 0 && (
+                        <span className="absolute right-2 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-600 px-1 text-[9px] font-bold text-white">
+                          {unreadTotal}
+                        </span>
+                      )}
+                  </Link>
+                );
+              })}
+            </div>
+          </nav>
+        </section>
+
+        {/* Chat */}
+        <section
+          className={`min-w-0 flex-1 flex-col bg-white ${
+            mobileChatOpen ? "flex" : "hidden md:flex"
+          }`}
+        >
+          {/* Chat header */}
+          <div className="flex h-[72px] shrink-0 items-center justify-between border-b border-slate-200 px-4 md:px-6">
+            <div className="flex min-w-0 items-center gap-3">
+              <button
+                type="button"
+                onClick={closeMobileChat}
+                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 md:hidden"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+
+              {selectedPhone ? (
+                <>
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold text-emerald-700">
+                    {activeDisplayName
+                      .slice(0, 2)
+                      .toUpperCase()}
+                  </div>
+
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-900">
+                      {activeDisplayName}
                     </div>
 
-                    <div className="mt-1 flex items-center justify-between gap-3">
-                      <div className="truncate text-sm text-slate-400">
-                        {getMessagePreview(lastMessage)}
-                      </div>
+                    <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
+                      <span className="truncate">
+                        {selectedPhone}
+                      </span>
 
-                      <div className="flex shrink-0 items-center gap-2">
-                        {expired && (
-                          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] text-amber-300">
-                            Expired
-                          </span>
-                        )}
+                      <span className="text-slate-300">
+                        â€¢
+                      </span>
 
-                        {unreadCount > 0 &&
-                          selectedPhone !== phone && (
-                            <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[11px] font-semibold text-slate-950">
-                              {unreadCount}
-                            </span>
-                          )}
-                      </div>
+                      <span
+                        className={
+                          activeConversationExpired
+                            ? "text-amber-600"
+                            : "text-emerald-600"
+                        }
+                      >
+                        {activeConversationExpired
+                          ? "24h window expired"
+                          : "24h window active"}
+                      </span>
                     </div>
                   </div>
-                </button>
-              );
-            }
-          )
-        )}
-      </div>
-    </aside>
-  );
+                </>
+              ) : (
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">
+                    Conversations
+                  </div>
 
-  const chatPanel = (
-    <section className="flex h-full min-w-0 flex-1 flex-col bg-slate-900">
-      <div className="flex items-center justify-between border-b border-slate-800 px-4 py-4 md:px-6">
-        <div className="flex min-w-0 items-center gap-3">
-          <button
-            type="button"
-            onClick={closeMobileChat}
-            className="rounded-full bg-slate-800 px-3 py-1.5 text-sm text-slate-300 md:hidden"
-          >
-            Back
-          </button>
-
-          <div className="min-w-0">
-            <div className="truncate font-semibold text-white">
-              {activeDisplayName}
+                  <div className="text-xs text-slate-400">
+                    Select a conversation
+                  </div>
+                </div>
+              )}
             </div>
 
             {selectedPhone && (
-              <>
-                <div className="mt-1 truncate text-xs text-slate-500">
-                  {selectedPhone}
-                </div>
-
-                <div
-                  className={`mt-1 text-xs ${
-                    activeConversationExpired
-                      ? "text-amber-300"
-                      : "text-emerald-300"
-                  }`}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowConversationMenu(
+                      (value) => !value
+                    )
+                  }
+                  className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
                 >
-                  {activeConversationExpired
-                    ? "Reply window expired"
-                    : "Reply window active"}
-                </div>
-              </>
+                  <MoreVertical className="h-5 w-5" />
+                </button>
+
+                {showConversationMenu && (
+                  <div className="absolute right-0 top-10 z-30 w-48 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowConversationMenu(false);
+                        void handleDeleteConversation();
+                      }}
+                      disabled={deletingConversation}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete conversation
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
-        </div>
 
-        {selectedPhone && (
-          <button
-            type="button"
-            onClick={handleDeleteConversation}
-            disabled={deletingConversation}
-            className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300 disabled:opacity-50"
-          >
-            {deletingConversation
-              ? "Deleting..."
-              : "Delete chat"}
-          </button>
-        )}
-      </div>
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto bg-slate-50 px-4 py-5 md:px-8">
+            {!selectedPhone ? (
+              <div className="flex h-full items-center justify-center">
+                <div className="max-w-sm text-center">
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-slate-200">
+                    <UserRound className="h-7 w-7 text-slate-300" />
+                  </div>
 
-      <div className="flex-1 overflow-y-auto scroll-smooth bg-[linear-gradient(180deg,rgba(2,6,23,1)_0%,rgba(15,23,42,1)_100%)] px-4 py-4 pb-28 md:px-6 md:py-6 md:pb-6">
-        {!selectedPhone ? (
-          <div className="flex h-full items-center justify-center text-slate-500">
-            Select a chat to view messages.
-          </div>
-        ) : activeMessages.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-slate-500">
-            No messages in this conversation.
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {activeMessages.map((message, index) => {
-              const isIncoming =
-                message.direction === "incoming";
+                  <h2 className="mt-4 text-base font-semibold text-slate-800">
+                    Select a conversation
+                  </h2>
 
-              const previousMessage =
-                activeMessages[index - 1];
+                  <p className="mt-1 text-sm text-slate-500">
+                    Choose a WhatsApp conversation from the
+                    list to view messages.
+                  </p>
+                </div>
+              </div>
+            ) : activeMessages.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-slate-400">
+                No messages in this conversation.
+              </div>
+            ) : (
+              <div className="mx-auto max-w-4xl space-y-3">
+                {activeMessages.map((message, index) => {
+                  const isIncoming =
+                    message.direction === "incoming";
 
-              const showDayLabel =
-                !previousMessage ||
-                formatRelativeDay(
-                  previousMessage.created_at
-                ) !==
-                  formatRelativeDay(
-                    message.created_at
-                  );
+                  const previousMessage =
+                    activeMessages[index - 1];
 
-              const displayedText =
-                message.caption?.trim() ||
-                message.message_text?.trim() ||
-                "";
+                  const showDayLabel =
+                    !previousMessage ||
+                    formatRelativeDay(
+                      previousMessage.created_at
+                    ) !==
+                      formatRelativeDay(
+                        message.created_at
+                      );
 
-              return (
-                <div key={message.id}>
-                  {showDayLabel && (
-                    <div className="mb-3 flex justify-center">
-                      <div className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-400">
-                        {formatRelativeDay(
-                          message.created_at
-                        )}
-                      </div>
-                    </div>
-                  )}
+                  const displayedText =
+                    message.caption?.trim() ||
+                    message.message_text?.trim() ||
+                    "";
 
-                  <div
-                    className={`group flex ${
-                      isIncoming
-                        ? "justify-start"
-                        : "justify-end"
-                    }`}
-                  >
-                    <div
-                      className={`max-w-[88%] rounded-2xl px-3 py-3 shadow-lg md:max-w-[70%] ${
-                        isIncoming
-                          ? "rounded-bl-md bg-slate-800 text-white"
-                          : "rounded-br-md bg-emerald-500 text-slate-950"
-                      }`}
-                    >
-                      {renderMessageMedia(message)}
-
-                      {displayedText && (
-                        <div className="whitespace-pre-wrap break-words px-1 text-sm leading-6">
-                          {displayedText}
+                  return (
+                    <div key={message.id}>
+                      {showDayLabel && (
+                        <div className="my-5 flex justify-center">
+                          <span className="rounded-full bg-white px-3 py-1 text-[11px] font-medium text-slate-400 shadow-sm ring-1 ring-slate-200">
+                            {formatRelativeDay(
+                              message.created_at
+                            )}
+                          </span>
                         </div>
                       )}
 
                       <div
-                        className={`mt-2 flex items-center justify-end gap-2 px-1 text-[11px] ${
+                        className={`group flex ${
                           isIncoming
-                            ? "text-slate-400"
-                            : "text-slate-900/70"
+                            ? "justify-start"
+                            : "justify-end"
                         }`}
                       >
-                        <span>
-                          {formatTime(
-                            message.created_at
-                          )}
-                        </span>
+                        <div
+                          className={`min-w-0 max-w-[85%] md:max-w-[65%] ${
+                            isIncoming
+                              ? "rounded-2xl rounded-bl-md bg-white text-slate-800 shadow-sm ring-1 ring-slate-200"
+                              : "rounded-2xl rounded-br-md bg-emerald-600 text-white shadow-sm"
+                          }`}
+                        >
+                          <div className="px-4 py-3">
+                            {renderMessageMedia(message)}
 
-                        {!isIncoming && message.status && (
-                          <span>
-                            • {message.status}
-                          </span>
-                        )}
+                            {displayedText && (
+                              <div className="whitespace-pre-wrap break-words text-sm leading-6">
+                                {displayedText}
+                              </div>
+                            )}
 
-                        {!String(message.id).startsWith(
-                          "temp-"
-                        ) && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleDeleteMessage(
+                            <div
+                              className={`mt-2 flex items-center justify-end gap-2 text-[10px] ${
+                                isIncoming
+                                  ? "text-slate-400"
+                                  : "text-emerald-100"
+                              }`}
+                            >
+                              <span>
+                                {formatTime(
+                                  message.created_at
+                                )}
+                              </span>
+
+                              {!isIncoming &&
+                                message.status && (
+                                  <span className="flex items-center gap-1">
+                                    <CheckCheck className="h-3 w-3" />
+                                    {message.status}
+                                  </span>
+                                )}
+
+                              {!String(
                                 message.id
-                              )
-                            }
-                            disabled={
-                              deletingMessageId ===
-                              message.id
-                            }
-                            className={`rounded px-1.5 py-0.5 ${
-                              isIncoming
-                                ? "bg-slate-700 text-slate-300"
-                                : "bg-emerald-600/30 text-slate-900"
-                            }`}
-                          >
-                            {deletingMessageId ===
-                            message.id
-                              ? "..."
-                              : "Delete"}
-                          </button>
-                        )}
+                              ).startsWith("temp-") && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void handleDeleteMessage(
+                                      message.id
+                                    )
+                                  }
+                                  disabled={
+                                    deletingMessageId ===
+                                    message.id
+                                  }
+                                  className={`opacity-0 transition group-hover:opacity-100 ${
+                                    isIncoming
+                                      ? "text-slate-400 hover:text-red-500"
+                                      : "text-emerald-100 hover:text-white"
+                                  }`}
+                                  title="Delete message"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       </div>
+                    </div>
+                  );
+                })}
+
+                <div ref={bottomRef} />
+              </div>
+            )}
+          </div>
+
+          {/* Composer */}
+          <div className="shrink-0 border-t border-slate-200 bg-white px-3 py-3 md:px-6 md:py-4">
+            {sendError && (
+              <div className="mx-auto mb-3 max-w-4xl rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+                {sendError}
+              </div>
+            )}
+
+            {selectedPhone &&
+              activeConversationExpired && (
+                <div className="mx-auto mb-3 max-w-4xl rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  This conversation is outside the 24-hour
+                  customer-care window. A new customer message
+                  is required before free-form replies can be
+                  sent.
+                </div>
+              )}
+
+            {attachment && (
+              <div className="mx-auto mb-3 flex max-w-4xl items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <FileText className="h-4 w-4 shrink-0 text-emerald-600" />
+
+                  <div className="min-w-0">
+                    <div className="truncate text-xs font-medium text-slate-700">
+                      {attachment.name}
+                    </div>
+
+                    <div className="text-[10px] text-slate-400">
+                      {formatFileSize(attachment.size)}
                     </div>
                   </div>
                 </div>
-              );
-            })}
 
-            <div ref={bottomRef} />
-          </div>
-        )}
-      </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAttachment(null);
 
-      <div className="sticky bottom-0 z-20 border-t border-slate-800 bg-slate-950/95 p-3 backdrop-blur md:p-4">
-        {sendError && (
-          <div className="mb-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
-            {sendError}
-          </div>
-        )}
-
-        {selectedPhone &&
-          activeConversationExpired && (
-            <div className="mb-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
-              This chat is expired. You can only reply
-              after the customer sends a new message.
-            </div>
-          )}
-
-        {attachment && (
-          <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
-            <div className="min-w-0">
-              <div className="truncate font-medium">
-                {attachment.name}
+                    if (fileInputRef.current) {
+                      fileInputRef.current.value = "";
+                    }
+                  }}
+                  className="rounded-md p-1 text-slate-400 hover:bg-white hover:text-slate-700"
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
+            )}
 
-              <div className="mt-0.5 text-xs text-emerald-300/70">
-                {formatFileSize(attachment.size)}
-              </div>
-            </div>
+            <div className="mx-auto flex max-w-4xl items-end gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,application/pdf"
+                className="hidden"
+                onChange={handleAttachmentChange}
+              />
 
-            <button
-              type="button"
-              onClick={() => {
-                setAttachment(null);
-
-                if (fileInputRef.current) {
-                  fileInputRef.current.value = "";
+              <button
+                type="button"
+                onClick={() =>
+                  fileInputRef.current?.click()
                 }
-              }}
-              className="shrink-0 rounded-lg bg-emerald-500/20 px-2 py-1 text-xs text-emerald-100"
-            >
-              Remove
-            </button>
+                disabled={
+                  !selectedPhone ||
+                  isSending ||
+                  activeConversationExpired
+                }
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                title="Attach file"
+              >
+                <Paperclip className="h-5 w-5" />
+              </button>
+
+              <button
+                type="button"
+                disabled={!selectedPhone}
+                className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-400 hover:bg-slate-50 disabled:opacity-40 sm:flex"
+                title="Emoji"
+              >
+                <Smile className="h-5 w-5" />
+              </button>
+
+              <textarea
+                value={draft}
+                onChange={(event) =>
+                  setDraft(event.target.value)
+                }
+                placeholder={
+                  !selectedPhone
+                    ? "Select a conversation..."
+                    : activeConversationExpired
+                      ? "24-hour reply window expired"
+                      : "Type a message..."
+                }
+                disabled={
+                  !selectedPhone ||
+                  isSending ||
+                  activeConversationExpired
+                }
+                rows={1}
+                className="max-h-32 min-h-[44px] flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    !event.shiftKey
+                  ) {
+                    event.preventDefault();
+                    void handleSend();
+                  }
+                }}
+              />
+
+              <button
+                type="button"
+                onClick={() => void handleSend()}
+                disabled={
+                  !selectedPhone ||
+                  (!draft.trim() && !attachment) ||
+                  isSending ||
+                  activeConversationExpired
+                }
+                className="flex h-11 shrink-0 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Send className="h-4 w-4" />
+
+                <span className="hidden sm:inline">
+                  {isSending ? "Sending" : "Send"}
+                </span>
+              </button>
+            </div>
           </div>
-        )}
-
-        <div className="flex items-end gap-3">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/jpeg,image/png,image/webp,application/pdf"
-            className="hidden"
-            onChange={handleAttachmentChange}
-          />
-
-          <button
-            type="button"
-            onClick={() =>
-              fileInputRef.current?.click()
-            }
-            disabled={
-              !selectedPhone ||
-              isSending ||
-              activeConversationExpired
-            }
-            className="rounded-2xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm font-semibold text-slate-200 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-            title="Attach file"
-          >
-            📎
-          </button>
-
-          <textarea
-            value={draft}
-            onChange={(event) =>
-              setDraft(event.target.value)
-            }
-            placeholder={
-              !selectedPhone
-                ? "Select a chat first..."
-                : activeConversationExpired
-                  ? "Reply window expired"
-                  : attachment
-                    ? "Add an optional caption..."
-                    : "Type a message..."
-            }
-            disabled={
-              !selectedPhone ||
-              isSending ||
-              activeConversationExpired
-            }
-            rows={1}
-            className="max-h-32 min-h-[48px] flex-1 resize-y rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-base text-white shadow-inner outline-none placeholder:text-slate-400 focus:border-emerald-500 disabled:cursor-not-allowed disabled:opacity-60 md:max-h-40 md:text-sm"
-            onKeyDown={(event) => {
-              if (
-                event.key === "Enter" &&
-                !event.shiftKey
-              ) {
-                event.preventDefault();
-                void handleSend();
-              }
-            }}
-          />
-
-          <button
-            type="button"
-            onClick={() => void handleSend()}
-            disabled={
-              !selectedPhone ||
-              (!draft.trim() && !attachment) ||
-              isSending ||
-              activeConversationExpired
-            }
-            className="rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isSending ? "Sending..." : "Send"}
-          </button>
-        </div>
-      </div>
-    </section>
-  );
-
-  return (
-    <div className="h-screen bg-slate-950 text-white">
-      <div className="mx-auto h-full max-w-[1600px] overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
-        <div className="hidden h-full md:flex">
-          <div className="w-[380px] border-r border-slate-800">
-            {sidebar}
-          </div>
-
-          {chatPanel}
-        </div>
-
-        <div className="h-full md:hidden">
-          {!mobileChatOpen ? sidebar : chatPanel}
-        </div>
-      </div>
+        </section>
+      </main>
     </div>
   );
 }

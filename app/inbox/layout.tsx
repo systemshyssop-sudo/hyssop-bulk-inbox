@@ -1,3 +1,4 @@
+import LogoutControl from "@/components/inbox/LogoutControl";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
@@ -15,5 +16,5 @@ export default async function InboxLayout({
     redirect("/login");
   }
 
-  return <>{children}</>;
+  return (<><LogoutControl />{children}</>);
 }
