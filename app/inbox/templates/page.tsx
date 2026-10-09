@@ -327,7 +327,7 @@ export default function TemplatesPage() {
 
                             {template.category && (
                               <>
-                                <span className="text-slate-300">•</span>
+                                <span className="text-slate-300">â€¢</span>
                                 <span>{template.category}</span>
                               </>
                             )}
