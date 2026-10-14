@@ -1,13 +1,33 @@
+
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
 
 const SPREADSHEET_ID = "14IyETL132G93N1_wz_dsTUbNjLMt0x9neBHKuXVly3M";
 const VALID_PHONE = /^254\d{9}$/;
 
+export const runtime = "nodejs";
+
 export async function GET() {
   try {
+    const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
+    const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+
+    if (!clientEmail || !privateKey) {
+      console.error("Google Sheets configuration is missing.");
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Google Sheets configuration is missing.",
+        },
+        { status: 500 }
+      );
+    }
+
     const auth = new google.auth.GoogleAuth({
-      keyFile: "google-service-account.json",
+      credentials: {
+        client_email: clientEmail,
+        private_key: privateKey,
+      },
       scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
     });
 
